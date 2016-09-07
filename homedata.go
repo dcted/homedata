@@ -44,6 +44,8 @@ func main() {
 			return;
 		}
 
+		//Based on the 2nd arg, runs the test.
+		//Tests 1 - 4 are tests 1 -4, and test 5 is test 4 extra credit.
 		switch value {
 			case 1:
 				parseProperties(file, addAcceptLastDuplicate)
@@ -54,14 +56,20 @@ func main() {
 			case 4:
 				parseProperties(file, addAfterFilter)
 			case 5:
-				parseProperties(file, addSplit)
+				parseProperties(file, addAcceptLastDuplicate)
+				SplitFilterMerge()
+				return;
 		}
+		printResults(properties)
 	} else {
 		fmt.Println("Enter an integer value between 1 and 5 for second argument")
 		return
 	}
 }
 
+//----- Reads the properties file, creates PropertyEntry structs for data
+//----- and runs testing and or filter functions on the PropertyEntrys
+//----- which decide if or not to add them to the final slice
 func parseProperties(file *os.File, filt func(PropertyEntry)) {
 	scan := bufio.NewScanner(file)
 
@@ -83,6 +91,7 @@ func parseProperties(file *os.File, filt func(PropertyEntry)) {
 	}
 }
 
+//----- Functions to run tests 1-4
 func addAcceptLastDuplicate(prop PropertyEntry) {
 	index, exists := PropertiesContains(prop)
 
@@ -116,15 +125,17 @@ func addAcceptNoDuplicate(prop PropertyEntry) {
 }
 
 func addAfterFilter(prop PropertyEntry) {
-	if CheckFilterUnder40k(prop) && CheckNoAveCresPlace(prop) && skipTenth() {
+	if CheckFilterUnder400k(prop) && CheckNoAveCresPlace(prop) && skipTenth() {
 		properties = append(properties, prop)
 	}
 }
 
-func CheckFilterUnder40k(prop PropertyEntry) bool {
+//----- Filter functions. Each returns a bool of true if the property 
+//----- passes the filter and ~should~ be added, or false if not
+func CheckFilterUnder400k(prop PropertyEntry) bool {
 	val, err := strconv.Atoi(prop.value)
 
-	if err == nil && val > 40000 {
+	if err == nil && val > 400000 {
 		return true
 	}
 	
@@ -142,6 +153,7 @@ func CheckNoAveCresPlace(prop PropertyEntry) bool {
 }
 
 //function closure to keep entry count (%10)
+//Return a function returning bool to keep track
 func TenthCounter() func() bool {
 	count := 0
 
@@ -157,9 +169,41 @@ func TenthCounter() func() bool {
 	}
 }
 
-func addSplit(prop PropertyEntry) {
+//----- Runs test 4 extra credit (test 5 in code) to split our preprocessed data
+//----- and filter in it own go routines, merging the results
+func SplitFilterMerge() {
+	half := make(chan []PropertyEntry, 2)
 
+	go applyFilters(half, properties[0:len(properties)/2])
+	go applyFilters(half, properties[len(properties)/2:len(properties)-1])
+
+	merge(<-half, <-half)
 }
+
+func applyFilters(filtered chan []PropertyEntry, unfiltered []PropertyEntry) {
+	current := []PropertyEntry{}
+	for _,val := range unfiltered {
+		if CheckFilterUnder400k(val) && CheckNoAveCresPlace(val) && skipTenth() {
+			current = append(current, val)
+		}
+	}
+	filtered<-current
+}
+
+func merge(a []PropertyEntry, b []PropertyEntry) {
+	merged := append(a,b...)
+	printResults(merged)
+}
+
+//----- Printer for printing all properties in a slice
+func printResults(results []PropertyEntry) {
+	for _,val := range results {
+		fmt.Println(val.id, val.address, val.town, val.valuationDate, val.value)
+	}
+}
+
+//----- Helper methods to run equal to based on rules, and to check our property slice contains
+//----- properties based on the equal to rules
 
 //Method to check if two properties are equal (their address and valuationDates are the same)
 func (p *PropertyEntry) EqualTo(prop PropertyEntry) bool {
