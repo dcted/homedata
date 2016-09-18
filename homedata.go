@@ -9,16 +9,21 @@ import (
 	"strconv"
 )
 
+type PropertyKey struct {
+	id int
+	valuationDate string
+}
+
 type PropertyEntry struct {
-	//make everything a string to make it easier to call INSERT INTO with the data
-	id string
+	key PropertyKey
 	address string
 	town string
-	valuationDate string
 	value string
 }
 
-var properties = []PropertyEntry{}
+var properties = make(map[PropertyKey]PropertyEntry)
+var keys = []PropertyKey{}
+//var properties = []PropertyEntry{}
 
 //Keep this counter for skipping the 10th entry
 var skipTenth = TenthCounter()
@@ -56,7 +61,7 @@ func main() {
 			case 4:
 				parseProperties(file, addAfterFilter)
 			case 5:
-				parseProperties(file, addAcceptLastDuplicate)
+				parseProperties(file, addAcceptFirstDuplicate)
 				SplitFilterMerge()
 				return;
 		}
@@ -82,51 +87,48 @@ func parseProperties(file *os.File, filt func(PropertyEntry)) {
 		}
 
 		//If we cant parse the id into an int, assume the row is invalid/not a data row
-		if _, err := strconv.Atoi(row[0]); err != nil {
+		idint, err := strconv.Atoi(row[0])
+
+		if(err != nil) {
 			continue
 		}
 
-		property := PropertyEntry{id: row[0], address: row[1], town: row[2], valuationDate: row[3], value: row[4]}
+		propertyKey := PropertyKey{id: idint, valuationDate: row[3]}
+		keys = append(keys, propertyKey)
+		property := PropertyEntry{key: propertyKey, address: row[1], town: row[2], value: row[4]}
 		filt(property)
 	}
 }
 
 //----- Functions to run tests 1-4
 func addAcceptLastDuplicate(prop PropertyEntry) {
-	index, exists := PropertiesContains(prop)
+	inserted := PropertiesInsert(prop)
 
-	//If it exists, replace it, else append it
-	if exists {
-		properties[index] = prop
-	} else {
-		properties = append(properties, prop)
+	if !inserted {
+		properties[prop.key] = prop
 	}
 }
 
 func addAcceptFirstDuplicate(prop PropertyEntry) {
-	_, exists := PropertiesContains(prop)
-
-	//if the property already exists, dont add it, add eveything else
-	if !exists {
-		properties = append(properties, prop)
-	}
+	//All we want to do is try and sorted insert the property
+	//We dont care about the returned values because we dont want
+	//to do anything extra for any outcome
+	PropertiesInsert(prop)
 }
 
 func addAcceptNoDuplicate(prop PropertyEntry) {
-	index, exists := PropertiesContains(prop)
+	inserted := PropertiesInsert(prop)
 
-	//We'll add entries, but well remove entries if we find duplication
-	//so that neither entry exists
-	if exists {
-		properties = append(properties[:index], properties[index+1:]...)
-	} else {
-		properties = append(properties, prop)
+	//If it was not inserted, remove the index returned also 
+	//(index of the found matching value)
+	if !inserted {
+		delete(properties, prop.key)
 	}
 }
 
 func addAfterFilter(prop PropertyEntry) {
 	if CheckFilterUnder400k(prop) && CheckNoAveCresPlace(prop) && skipTenth() {
-		properties = append(properties, prop)
+		PropertiesInsert(prop)
 	}
 }
 
@@ -174,17 +176,20 @@ func TenthCounter() func() bool {
 func SplitFilterMerge() {
 	half := make(chan []PropertyEntry, 2)
 
-	go applyFilters(half, properties[0:len(properties)/2])
-	go applyFilters(half, properties[len(properties)/2:len(properties)-1])
+	go applyFilters(half, keys[0:len(keys)/2])
+	go applyFilters(half, keys[len(keys)/2:len(keys)-1])
 
 	merge(<-half, <-half)
 }
 
-func applyFilters(filtered chan []PropertyEntry, unfiltered []PropertyEntry) {
+func applyFilters(filtered chan []PropertyEntry, unfiltered []PropertyKey) {
 	current := []PropertyEntry{}
 	for _,val := range unfiltered {
-		if CheckFilterUnder400k(val) && CheckNoAveCresPlace(val) && skipTenth() {
-			current = append(current, val)
+		if _, exists := properties[val]; exists {
+			prop := properties[val]
+			if CheckFilterUnder400k(prop) && CheckNoAveCresPlace(prop) && skipTenth() {
+				current = append(current, prop)
+			}
 		}
 	}
 	filtered<-current
@@ -192,30 +197,33 @@ func applyFilters(filtered chan []PropertyEntry, unfiltered []PropertyEntry) {
 
 func merge(a []PropertyEntry, b []PropertyEntry) {
 	merged := append(a,b...)
-	printResults(merged)
+	printSliceResults(merged)
 }
 
 //----- Printer for printing all properties in a slice
-func printResults(results []PropertyEntry) {
+func printResults(results map[PropertyKey]PropertyEntry) {
+	for key,val := range results {
+		fmt.Println(key.id, val.address, val.town, key.valuationDate, val.value)
+
+	}
+}
+
+func printSliceResults(results []PropertyEntry) {
 	for _,val := range results {
-		fmt.Println(val.id, val.address, val.town, val.valuationDate, val.value)
+		fmt.Println(val.key.id, val.address, val.town, val.key.valuationDate, val.value)
 	}
 }
 
-//----- Helper methods to run equal to based on rules, and to check our property slice contains
-//----- properties based on the equal to rules
-
-//Method to check if two properties are equal (their address and valuationDates are the same)
-func (p *PropertyEntry) EqualTo(prop PropertyEntry) bool {
-	return strings.EqualFold(p.address, prop.address) && strings.EqualFold(p.valuationDate, prop.valuationDate)
-}
-
-//Function to check if the slice of PropertyEntry contains a given PropertyEntry dictated by the EqualTo method
-func PropertiesContains(prop PropertyEntry) (int, bool) {
-	for index, value := range properties {
-		if value.EqualTo(prop) {
-			return index, true
-		}
-	}
-	return -1, false
+//Inserts into the properties map, using the props key property as the map key
+//will return false if the value wasnt added because of a duplicate situation
+//or true of it was successfully added with no duplicate
+func PropertiesInsert(prop PropertyEntry) (bool) {
+    if _, exists := properties[prop.key]; exists {
+    	//We need to escalate this as there is a duplicate
+    	return false
+    } else {
+    	//safe to just add as there is no duplicate
+    	properties[prop.key] = prop
+    	return true;
+    }
 }
