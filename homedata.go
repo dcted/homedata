@@ -94,7 +94,6 @@ func parseProperties(file *os.File, filt func(PropertyEntry)) {
 		}
 
 		propertyKey := PropertyKey{id: idint, valuationDate: row[3]}
-		keys = append(keys, propertyKey)
 		property := PropertyEntry{key: propertyKey, address: row[1], town: row[2], value: row[4]}
 		filt(property)
 	}
@@ -185,10 +184,9 @@ func SplitFilterMerge() {
 func applyFilters(filtered chan []PropertyEntry, unfiltered []PropertyKey) {
 	current := []PropertyEntry{}
 	for _,val := range unfiltered {
-		if _, exists := properties[val]; exists {
-			prop := properties[val]
-			if CheckFilterUnder400k(prop) && CheckNoAveCresPlace(prop) && skipTenth() {
-				current = append(current, prop)
+		if value, exists := properties[val]; exists {
+			if CheckFilterUnder400k(value) && CheckNoAveCresPlace(value) && skipTenth() {
+				current = append(current, value)
 			}
 		}
 	}
@@ -224,6 +222,7 @@ func PropertiesInsert(prop PropertyEntry) (bool) {
     } else {
     	//safe to just add as there is no duplicate
     	properties[prop.key] = prop
+    	keys = append(keys, prop.key)
     	return true;
     }
 }
